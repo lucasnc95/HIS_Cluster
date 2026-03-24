@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <mpi.h>
-#include <ostream>
-#include <iostream>
+
 #include <sys/time.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,13 +12,13 @@
 //Esta versao nao tem sobreposicao de comunicacao com computacao, provavelmente existe um problema no driver do OpenCL, verificar.
 //********************************************************************************************************************************
 
-#define PRINT
+//#define PRINT
 #define CPU_WORK_GROUP_SIZE	8
 #define GPU_WORK_GROUP_SIZE	64
 #define SIMULACOES		10000
 #define INTERVALO_BALANCEAMENTO	1000
 #define BALANCEAMENTO_THRESHOLD	0.000025
-#define PRECISAO_BALANCEAMENTO	1000
+#define PRECISAO_BALANCEAMENTO	10
 
 //Tipos de celulas.
 #define CELULA_A		0
@@ -45,76 +44,10 @@
 #define NUMERO_PARAMETROS_MALHA         9
 
 //Habilitar.
-//#define HABILITAR_ESTATICO
+#define HABILITAR_ESTATICO
 #define HABILITAR_BALANCEAMENTO
-//#define HABILITAR_BENCHMARK
-
-
-
-
-
-void SaveFigure(int malhaSwapBufferDispositivo[][2], float **malhaSwapBuffer, int **parametrosMalha, int xMalhaLength, int yMalhaLength, int zMalhaLength, int meusDispositivosOffset, int meusDispositivosLength, float time, int world_size, int world_rank, int todosDispositivos)
-{
-    FILE *file;
-    char filename[50];
-    char charTime[10];
-    
-    // Criação do nome do arquivo com o tempo
-    snprintf(filename, sizeof(filename), "results%f.vtk", time);
-    
-    // Abre o arquivo para escrita
-    file = fopen(filename, "w");
-    if (file == NULL) {
-        perror("Não foi possível abrir o arquivo");
-        return;
-    }
-
-    // Cabeçalho do arquivo VTK
-    fprintf(file, "# vtk DataFile Version 2.0\n");
-    fprintf(file, "Really cool data\n");
-    fprintf(file, "ASCII\n");
-    fprintf(file, "DATASET STRUCTURED_GRID\n");
-    fprintf(file, "DIMENSIONS %d %d %d\n", xMalhaLength, yMalhaLength, zMalhaLength);
-    fprintf(file, "POINTS %d float\n", xMalhaLength * yMalhaLength * zMalhaLength);
-
-    // Escreve as coordenadas dos pontos
-    for (unsigned int z = 0; z < parametrosMalha[0][COMPRIMENTO_GLOBAL_Z]; z++) {
-        for (unsigned int y = 0; y < parametrosMalha[0][COMPRIMENTO_GLOBAL_Y]; y++) {
-            for (unsigned int x = 0; x < parametrosMalha[0][COMPRIMENTO_GLOBAL_X]; x++) {
-                fprintf(file, "%d %d %d\n", x, y, z);
-            }
-        }
-    }
-
-    fprintf(file, "POINT_DATA %d\n", xMalhaLength * yMalhaLength * zMalhaLength);
-    fprintf(file, "SCALARS volume_scalars float 1\n");
-    fprintf(file, "LOOKUP_TABLE default\n");
-
-    // Preenche os valores escalares
-    const float *malha = malhaSwapBuffer[0];
-    for (unsigned int z = 0; z < parametrosMalha[0][COMPRIMENTO_GLOBAL_Z]; z++) {
-        for (unsigned int y = 0; y < parametrosMalha[0][COMPRIMENTO_GLOBAL_Y]; y++) {
-            for (unsigned int x = 0; x < parametrosMalha[0][COMPRIMENTO_GLOBAL_X]; x++) {
-                int index = (CELULA_A * parametrosMalha[0][MALHA_DIMENSAO_CELULAS]) + (z * parametrosMalha[0][MALHA_DIMENSAO_POSICAO_Z]) + (y * parametrosMalha[0][MALHA_DIMENSAO_POSICAO_Y]) + (x * parametrosMalha[0][MALHA_DIMENSAO_POSICAO_X]);
-                
-                if (index >= parametrosMalha[0][OFFSET_COMPUTACAO] * MALHA_TOTAL_CELULAS &&
-                    index < (parametrosMalha[0][OFFSET_COMPUTACAO] + parametrosMalha[0][LENGTH_COMPUTACAO]) * MALHA_TOTAL_CELULAS) {
-                    fprintf(file, "%f ", malha[index]);
-                } else {
-                    fprintf(file, "0.0 ");
-                }
-            }
-            fprintf(file, "\n");
-        }
-    }
-
-    fclose(file);
-}
-
-
-
-
-
+#define HABILITAR_BENCHMARK
+#define PRINT
 
 
 void InicializarParametrosMalhaHIS(int **parametrosMalha, unsigned int offsetComputacao, unsigned int lengthComputacao, unsigned int xMalhaLength, unsigned int yMalhaLength, unsigned int zMalhaLength)
@@ -185,7 +118,7 @@ void LerPontosHIS(const float *malha, const int *parametrosMalha)
 }
 
 int main(int argc, char *argv[])
-{	double	tempoInicio = MPI_Wtime();
+{
 	if(argc < 4)
 	{
 		printf("Por favor, digite as dimensões da malha.\n");
@@ -217,7 +150,7 @@ int main(int argc, char *argv[])
 	MPI_Request sendRequest, receiveRequest;
 
 	int dispositivos = InitParallelProcessor();
-	
+
 	int dispositivosLocal[world_size];
 	int dispositivosWorld[world_size];
 	memset(dispositivosLocal, 0, sizeof(int)*world_size);
@@ -361,7 +294,7 @@ int main(int argc, char *argv[])
 			MPI_Bcast(temposRoot, todosDispositivos, MPI_LONG, 0, MPI_COMM_WORLD);
 			memcpy(tempos, temposRoot, sizeof(long int)*todosDispositivos);
 			ComputarCargas(tempos, cargasAntigas, cargasNovas, todosDispositivos);
-			
+
 			//Computar novas cargas.
 			if(ComputarNorma(cargasAntigas, cargasNovas, todosDispositivos) > BALANCEAMENTO_THRESHOLD)
 			{
@@ -475,8 +408,7 @@ int main(int argc, char *argv[])
 			for(int count = 0; count < todosDispositivos; count++)
 			{
 				if(count >= meusDispositivosOffset && count < meusDispositivosOffset+meusDispositivosLength)
-				{	//printf("Length[%i]: %i Offset[%i]: %i\n", count, parametrosMalha[count][OFFSET_COMPUTACAO], count, parametrosMalha[count][OFFSET_COMPUTACAO]);
-
+				{
 					RunKernel(count-meusDispositivosOffset, kernelDispositivo[count], parametrosMalha[count][OFFSET_COMPUTACAO]+(xMalhaLength*yMalhaLength), parametrosMalha[count][LENGTH_COMPUTACAO]-(xMalhaLength*yMalhaLength), isDeviceCPU(count-meusDispositivosOffset) ? CPU_WORK_GROUP_SIZE :  GPU_WORK_GROUP_SIZE);
 				}
 			}
@@ -498,8 +430,6 @@ int main(int argc, char *argv[])
 			#endif
 
 			//Transferencia de bordas, feita em quatro passos.
-			
-			//LerPontosHIS(malhaSwapBuffer[0], parametrosMalha[0]);
 			for(int passo = 0; passo < 4; passo++)
 			{
 				for(int count = 0; count < todosDispositivos; count++)
@@ -511,6 +441,7 @@ int main(int argc, char *argv[])
 						int malhaDevice[2];
 						int borda[2];
 						int alvo;
+					
 						//Entre processos diferentes, no quarto passo.
 						if(passo == 3)
 						{
@@ -623,6 +554,7 @@ int main(int argc, char *argv[])
 							borda[0] = parametrosMalha[count+1][OFFSET_COMPUTACAO]-(tamanhoBorda);
 							borda[0] = (borda[0] < 0) ? 0 : borda[0];
 							borda[1] = parametrosMalha[count+1][OFFSET_COMPUTACAO];
+
 							dataEventoDispositivo[count+0] = ReadFromMemoryObject(count+0-meusDispositivosOffset, malhaDevice[0], (char *)(malha+(borda[0]*MALHA_TOTAL_CELULAS)), borda[0]*MALHA_TOTAL_CELULAS*sizeof(float), tamanhoBorda*MALHA_TOTAL_CELULAS*sizeof(float));
 							SynchronizeCommandQueue(count+0-meusDispositivosOffset);
 
@@ -671,8 +603,7 @@ int main(int argc, char *argv[])
 			for(int count = 0; count < todosDispositivos; count++)
 			{
 				if(count >= meusDispositivosOffset && count < meusDispositivosOffset+meusDispositivosLength)
-				{	//printf("Bordas Length[%d]: %d Offset[%d]: %d\n", count, parametrosMalha[OFFSET_COMPUTACAO], count, parametrosMalha[OFFSET_COMPUTACAO]);
-
+				{
 					if((simulacao%2)==0)
 					{
 						SetKernelAttribute(count-meusDispositivosOffset, kernelDispositivo[count], 0, malhaSwapBufferDispositivo[count][0]);
@@ -704,16 +635,7 @@ int main(int argc, char *argv[])
 			tempoComputacaoBorda += tempoFim-tempoInicio;
 			#endif
 		}
-	
-	
-		
-
-		 }
-	
-	
-	
-	
-	
+	}
 
 	//*******
 	//Tempos.
@@ -724,7 +646,7 @@ int main(int argc, char *argv[])
 	if(world_rank == 0)
 	{
 		gettimeofday(&timeEnd, NULL);
-		//printf("Overall ticks (1tick->1ms): %lu\n", (timeEnd.tv_sec - timeStart.tv_sec)*1000000 + (timeEnd.tv_usec - timeStart.tv_usec));
+		printf("Overall ticks (1tick->1ms): %lu\n", (timeEnd.tv_sec - timeStart.tv_sec)*1000000 + (timeEnd.tv_usec - timeStart.tv_usec));
 
 		#ifdef HABILITAR_BENCHMARK
 		printf("Internal computation (s): %f\n", tempoComputacaoInterna);
@@ -735,14 +657,14 @@ int main(int argc, char *argv[])
 
 		for(int count = 0; count < todosDispositivos; count++)
 		{
-			//printf("Tempo dispositivo (1tick->1nanosegundo) %i: %li\n", count, tempos[count]);
+			printf("Tempo dispositivo (1tick->1nanosegundo) %i: %li\n", count, tempos[count]);
 		}
 	}
 
 	//************
 	//Finalização.
 	//************
-	
+
 	#ifdef PRINT
 	for(int count2 = 0; count2 < world_size; count2++)
 	{
@@ -776,11 +698,9 @@ int main(int argc, char *argv[])
 	delete [] malhaSwapBuffer[1];
 	malhaSwapBuffer[0] = NULL;
 	malhaSwapBuffer[1] = NULL;
-	double tempoFim = MPI_Wtime();
-	std::cout<<"Tempo execução:"<<tempoFim-tempoInicio<<std::endl;
+
 	FinishParallelProcessor();
 	MPI_Finalize();
-	
 	return 0;
 }
 
